@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+langchain-core
+selenium
+webdriver-manager
+pydantic
+langgraph
+langchain-openai
+python-dotenv

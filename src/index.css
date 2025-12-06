@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-gradient-from: #0f1724; /* slate-900 */
+  --bg-gradient-via: #6b21a8;  /* purple-900 */
+  --bg-gradient-to: #0f1724;   /* slate-900 */
+}
+
+body {
+  @apply m-0 antialiased font-sans;
+  background: linear-gradient(135deg, var(--bg-gradient-from), var(--bg-gradient-via) 40%, var(--bg-gradient-to));
+}
+
+code { @apply font-mono; }
