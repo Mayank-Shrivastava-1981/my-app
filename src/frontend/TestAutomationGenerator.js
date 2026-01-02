@@ -55,7 +55,6 @@ export default function TestAutomationGenerator() {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const apiKey = process.env.REACT_APP_ANTHROPIC_API_KEY || '';
   const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
 
   const generateCode = async () => {
@@ -98,13 +97,6 @@ export default function TestAutomationGenerator() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-8">
-      {!apiKey && (
-        <div className="max-w-6xl mx-auto mb-4">
-          <div className="bg-yellow-500/20 border border-yellow-500/50 rounded-lg p-3 text-yellow-100">
-            Warning: `REACT_APP_ANTHROPIC_API_KEY` is not set. Code generation will fail without an API key.
-          </div>
-        </div>
-      )}
       <div className="max-w-6xl mx-auto">
         <div className="text-center mb-8">
           <div className="flex items-center justify-center gap-3 mb-4">
