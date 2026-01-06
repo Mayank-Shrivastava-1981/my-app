@@ -55,6 +55,7 @@ export default function TestAutomationGenerator() {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+  // REPLACE 'localhost' with your computer's IP address (e.g., '192.168.1.15') if testing from another device
   const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
 
   const generateCode = async () => {
