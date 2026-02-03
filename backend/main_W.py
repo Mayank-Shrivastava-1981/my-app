@@ -20,40 +20,26 @@ load_dotenv()
 # ------------------------
 class Xpath_Util:
     def __init__(self):
+        self.guessable_elements = ['input', 'button', 'select', 'textarea', 'a', 'label', 'img', 'div']
         self.known_attribute_list = [
-            'id', 'name', 'placeholder', 'value',
-            'title', 'type', 'class',
-            'aria-label', 'data-testid', 'role'
+            'id', 'name', 'placeholder', 'value', 'title', 'type', 'class', 'aria-label', 'data-testid'
         ]
-
-        # Skip tags that have no automation value
-        self.skip_tags = {
-            'script', 'style', 'meta', 'link',
-            'noscript', 'svg', 'path'
-        }
-
         self.xpath_collection = []
 
     def generate_xpath(self, driver):
-        # 🔥 Fetch ALL elements in the DOM
-        elements = driver.find_elements(By.XPATH, "//*")
+        elements = driver.find_elements(By.XPATH, '//input | //button | //select | //textarea | //a | //label | //img | //div')
 
         for element in elements:
             try:
                 tag = element.tag_name.lower()
-
-                if tag in self.skip_tags:
+                if tag not in self.guessable_elements:
                     continue
 
                 attr_found = False
-
-                # 1️⃣ Attribute-based XPath (highest priority)
                 for attr in self.known_attribute_list:
                     attr_value = element.get_attribute(attr)
-
                     if attr_value and not self._is_auto_generated(attr_value):
                         xpath = f"//{tag}[@{attr}='{attr_value}']"
-
                         if self._is_xpath_unique(driver, xpath):
                             variable_name = self._generate_variable_name(tag, attr_value)
                             self.xpath_collection.append({
@@ -66,30 +52,26 @@ class Xpath_Util:
                             attr_found = True
                             break
 
-                # 2️⃣ Text-based fallback for ANY visible element
-                if not attr_found:
+                if not attr_found and tag == 'button':
                     text = element.text.strip()
-                    if text and len(text) <= 50:
-                        xpath = f"//{tag}[normalize-space(text())='{text}']"
-
+                    if text:
+                        xpath = f"//button[text()='{text}']"
                         if self._is_xpath_unique(driver, xpath):
-                            variable_name = self._generate_variable_name(tag, text)
+                            var_name = self._generate_variable_name(tag, text)
                             self.xpath_collection.append({
                                 'tag': tag,
                                 'attribute': 'text',
                                 'value': text,
                                 'xpath': xpath,
-                                'variable_name': variable_name
+                                'variable_name': var_name
                             })
 
             except Exception as e:
-                print(f"Error processing <{element.tag_name}>: {e}")
+                print(f"Error processing element: {e}")
 
     def _is_xpath_unique(self, driver, xpath):
         try:
-            WebDriverWait(driver, 1).until(
-                EC.presence_of_element_located((By.XPATH, xpath))
-            )
+            WebDriverWait(driver, 1).until(EC.presence_of_element_located((By.XPATH, xpath)))
             return len(driver.find_elements(By.XPATH, xpath)) == 1
         except:
             return False
@@ -98,11 +80,9 @@ class Xpath_Util:
         return bool(re.search(r'\b\w{5,}\d+\w*\b', value))
 
     def _generate_variable_name(self, tag, value):
-        value = value.lower()
-        value = re.sub(r'[^a-z0-9]+', '_', value)
-        value = re.sub(r'_+', '_', value).strip('_')
-        return f"{tag}_{value}"
-
+        value = re.sub(r'[\s\-\/\[\],.&]+', '_', value)
+        value = re.sub(r'__+', '_', value).strip('_')
+        return value
 
 # ------------------------
 # LangGraph Nodes
