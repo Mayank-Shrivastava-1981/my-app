@@ -55,11 +55,34 @@ class Xpath_Util:
             return "DROPDOWN_CUSTOM"
         return "GENERIC"
 
-    def is_interactive(self, tag, element_type, role):
+    def is_interactive(self, tag, element_type, role, element=None):
+        # Common interactive tags
         if tag in ["input", "button", "select", "textarea", "a"]:
             return True
-        if role in ["button", "textbox", "combobox", "checkbox", "radio", "link"]:
+
+        # Common ARIA roles that imply interactivity
+        interactive_roles = [
+            "button", "textbox", "combobox", "checkbox",
+            "radio", "link", "menuitem", "option", "tab", "menu"
+        ]
+        if role and role.lower() in interactive_roles:
             return True
+
+        # Inspect element attributes that often indicate interactivity
+        if element is not None:
+            try:
+                onclick = element.get_attribute("onclick")
+                tabindex = element.get_attribute("tabindex")
+                href = element.get_attribute("href")
+                if onclick:
+                    return True
+                if href:
+                    return True
+                if tabindex and tabindex.strip() != "-1":
+                    return True
+            except Exception:
+                pass
+
         return False
 
     # ---------------- Locator Strategy ----------------
@@ -90,8 +113,8 @@ class Xpath_Util:
 
                 element_type = element.get_attribute("type")
                 role = element.get_attribute("role")
-
-                if not self.is_interactive(tag, element_type, role):
+                # Pass the element so we can inspect attributes like onclick/tabindex
+                if not self.is_interactive(tag, element_type, role, element):
                     continue
 
                 category = self.classify_element(tag, element_type, role)
@@ -235,10 +258,56 @@ def generate_code(state):
     testData = state.get("testData", "")
     url = state.get("url", "")
     testSteps = state.get("testSteps", "")
-    matched = state.get("xpaths", [])  # Use all extracted xpaths if mapping is removed
+    # Filter extracted xpaths to only those referenced in the test steps/case/data
+    all_xpaths = state.get("xpaths", [])
+    search_text = " ".join([
+        str(state.get("testCase", "")),
+        str(state.get("testSteps", "")),
+        str(state.get("testData", "")),
+        str(state.get("url", ""))
+    ]).lower()
+
+    def _element_matches_in_steps(el, haystack):
+        # Match by variable name, category, full xpath or tokens from variable_name
+        try:
+            name = (el.get("variable_name") or "").lower()
+            cat = (el.get("category") or "").lower()
+            xp = (el.get("xpath") or "").lower()
+
+            if name and name in haystack:
+                return True
+            if cat and cat in haystack:
+                return True
+            if xp and xp in haystack:
+                return True
+
+            # check for text() or contains(...) values inside xpath
+            m = re.search(r"text\(\)='([^']+)'", xp)
+            if m and m.group(1).strip().lower() in haystack:
+                return True
+            m2 = re.search(r"contains\(text\(\),'([^']+)'\)", xp)
+            if m2 and m2.group(1).strip().lower() in haystack:
+                return True
+
+            # tokens from variable name
+            tokens = re.findall(r"[a-zA-Z]{3,}", name)
+            for t in tokens:
+                if t in haystack:
+                    return True
+        except Exception:
+            pass
+        return False
+
+    matched = [el for el in all_xpaths if _element_matches_in_steps(el, search_text)]
+
+    # Expose matched set for frontend convenience; also replace state['xpaths'] so UI shows only matched
+    state["matched_xpaths"] = matched
+    state["extracted_xpaths"] = matched
+    state["xpaths"] = matched
+
     elements = "\n".join([
         f"{el['variable_name']} | {el['category']} | {el['xpath']}"
-        for el in state["xpaths"]
+        for el in matched
     ])
 
     system_prompt = """
