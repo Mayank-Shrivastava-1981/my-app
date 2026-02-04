@@ -83,6 +83,10 @@ export default function TestAutomationGenerator() {
       setGeneratedCode(code);
 
       const xpaths = data.extracted_xpaths || data.extractedXpaths || data.xpaths || data.extracted || [];
+      // Log matched/extracted xpaths to the browser console for debugging
+      if (Array.isArray(xpaths)) {
+        console.log('Extracted XPaths:', xpaths);
+      }
       if (Array.isArray(xpaths) && xpaths.length) setExtractedXpaths(xpaths);
 
       setStatus('success');
