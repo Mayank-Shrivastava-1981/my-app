@@ -12,143 +12,161 @@ from webdriver_manager.chrome import ChromeDriverManager
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI
 
-# Load variables from .env file
 load_dotenv()
 
 # ------------------------
-# Xpath Utility Class
+# XPath + Element Intelligence Utility
 # ------------------------
 class Xpath_Util:
     def __init__(self):
         self.known_attribute_list = [
-            'id', 'name', 'placeholder', 'value',
-            'title', 'type', 'class',
-            'aria-label', 'data-testid', 'role'
+            "id", "name", "aria-label",
+            "placeholder", "data-testid",
+            "role", "type"
         ]
 
-        # Skip tags that have no automation value
         self.skip_tags = {
-            'script', 'style', 'meta', 'link',
-            'noscript', 'svg', 'path'
+            "script", "style", "meta",
+            "link", "noscript", "svg", "path"
         }
 
         self.xpath_collection = []
 
+    # -------- Element Classification --------
+    def classify_element(self, tag, element_type, role):
+        if tag == "input" and element_type in ["text", "email", "search"]:
+            return "TEXTBOX"
+        if tag == "input" and element_type == "password":
+            return "PASSWORD"
+        if tag == "input" and element_type == "checkbox":
+            return "CHECKBOX"
+        if tag == "input" and element_type == "radio":
+            return "RADIO"
+        if tag == "button":
+            return "BUTTON"
+        if tag == "a":
+            return "LINK"
+        if tag == "select":
+            return "DROPDOWN_NATIVE"
+        if role == "combobox":
+            return "DROPDOWN_CUSTOM"
+        return "GENERIC"
+
+    def is_interactive(self, tag, element_type, role):
+        if tag in ["input", "button", "select", "textarea", "a"]:
+            return True
+        if role in ["button", "textbox", "combobox", "checkbox", "radio"]:
+            return True
+        return False
+
+    # -------- Locator Strategy --------
+    def determine_best_locator(self, tag, attr, value):
+        if attr == "id":
+            return {"type": "id", "value": value}
+        if attr == "name":
+            return {"type": "name", "value": value}
+        if attr == "aria-label":
+            return {
+                "type": "css",
+                "value": f"{tag}[aria-label='{value}']"
+            }
+        return {
+            "type": "xpath",
+            "value": f"//{tag}[@{attr}='{value}']"
+        }
+
     def generate_xpath(self, driver):
-        # 🔥 Fetch ALL elements in the DOM
         elements = driver.find_elements(By.XPATH, "//*")
 
         for element in elements:
             try:
                 tag = element.tag_name.lower()
-
                 if tag in self.skip_tags:
                     continue
 
-                attr_found = False
+                element_type = element.get_attribute("type")
+                role = element.get_attribute("role")
 
-                # 1️⃣ Attribute-based XPath (highest priority)
+                if not self.is_interactive(tag, element_type, role):
+                    continue
+
                 for attr in self.known_attribute_list:
-                    attr_value = element.get_attribute(attr)
+                    value = element.get_attribute(attr)
 
-                    if attr_value and not self._is_auto_generated(attr_value):
-                        xpath = f"//{tag}[@{attr}='{attr_value}']"
-
+                    if value and not self._is_auto_generated(value):
+                        xpath = f"//{tag}[@{attr}='{value}']"
                         if self._is_xpath_unique(driver, xpath):
-                            variable_name = self._generate_variable_name(tag, attr_value)
+                            category = self.classify_element(tag, element_type, role)
+                            locator = self.determine_best_locator(tag, attr, value)
+
                             self.xpath_collection.append({
-                                'tag': tag,
-                                'attribute': attr,
-                                'value': attr_value,
-                                'xpath': xpath,
-                                'variable_name': variable_name
+                                "tag": tag,
+                                "category": category,
+                                "attribute": attr,
+                                "value": value,
+                                "locator": locator,
+                                "xpath": xpath,
+                                "variable_name": self._generate_variable_name(tag, value),
+                                "is_enabled": element.is_enabled(),
+                                "is_displayed": element.is_displayed()
                             })
-                            attr_found = True
                             break
 
-                # 2️⃣ Text-based fallback for ANY visible element
-                if not attr_found:
-                    text = element.text.strip()
-                    if text and len(text) <= 50:
-                        xpath = f"//{tag}[normalize-space(text())='{text}']"
-
-                        if self._is_xpath_unique(driver, xpath):
-                            variable_name = self._generate_variable_name(tag, text)
-                            self.xpath_collection.append({
-                                'tag': tag,
-                                'attribute': 'text',
-                                'value': text,
-                                'xpath': xpath,
-                                'variable_name': variable_name
-                            })
-
             except Exception as e:
-                print(f"Error processing <{element.tag_name}>: {e}")
+                print(f"Error processing element: {e}")
 
     def _is_xpath_unique(self, driver, xpath):
-        try:
-            WebDriverWait(driver, 1).until(
-                EC.presence_of_element_located((By.XPATH, xpath))
-            )
-            return len(driver.find_elements(By.XPATH, xpath)) == 1
-        except:
-            return False
+        return len(driver.find_elements(By.XPATH, xpath)) == 1
 
     def _is_auto_generated(self, value):
-        return bool(re.search(r'\b\w{5,}\d+\w*\b', value))
+        return bool(re.search(r"\b\w{5,}\d+\w*\b", value))
 
     def _generate_variable_name(self, tag, value):
-        value = value.lower()
-        value = re.sub(r'[^a-z0-9]+', '_', value)
-        value = re.sub(r'_+', '_', value).strip('_')
-        return f"{tag}_{value}"
+        value = re.sub(r"[^a-zA-Z0-9]+", "_", value.lower())
+        return f"{tag}_{value.strip('_')}"
 
 
 # ------------------------
 # LangGraph Nodes
 # ------------------------
 def fetch_page(state):
-    try:
-        url = state.get("url")
-        html = state.get("html")
+    chrome_options = Options()
+    chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
 
-        chrome_options = Options()
-        chrome_options.add_argument("--headless=new")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--log-level=3")
+    driver = webdriver.Chrome(
+        service=Service(ChromeDriverManager().install()),
+        options=chrome_options
+    )
 
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=chrome_options)
+    url = state.get("url")
+    html = state.get("html")
 
-        if url:
-            driver.get(url)
-            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-        elif html:
-            driver.get("data:text/html;charset=utf-8," + html)
-            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-        else:
-            raise ValueError("Either url or html must be provided")
+    if url:
+        driver.get(url)
+    elif html:
+        driver.get("data:text/html;charset=utf-8," + html)
+    else:
+        raise ValueError("URL or HTML must be provided")
 
-        state["driver"] = driver
-        print("Page fetched successfully")
-        return state
+    WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.TAG_NAME, "body"))
+    )
 
-    except Exception as e:
-        print(f"Error fetching page: {e}")
-        if 'driver' in locals():
-            driver.quit()
-        raise
+    state["driver"] = driver
+    return state
+
 
 def extract_xpaths(state):
-    print("Extracting xpaths...")
     driver = state["driver"]
-    xpath_util = Xpath_Util()
-    xpath_util.generate_xpath(driver)
+    util = Xpath_Util()
+    util.generate_xpath(driver)
     driver.quit()
-    state["xpaths"] = xpath_util.xpath_collection
-    print(f"Extracted {len(state['xpaths'])} xpaths successfully")
+
+    state["xpaths"] = util.xpath_collection
     return state
+
 
 def generate_code(state):
     llm = ChatOpenAI(
@@ -157,55 +175,50 @@ def generate_code(state):
         api_key=os.getenv("OPENAI_API_KEY")
     )
 
-    selectedLanguage = state.get("selectedLanguage", "Java")
-    selectedTool = state.get("selectedTool", "Selenium")
-    testCase = state.get("testCase", "")
-    testData = state.get("testData", "")
-    url = state.get("url", "")
-    testSteps = state.get("testSteps", "")
-    matched = state.get("xpaths", [])  # Use all extracted xpaths if mapping is removed
-    available_elements = "\n".join([f"{el['variable_name']}: {el['xpath']}" for el in matched])
+    elements = "\n".join([
+        f"{el['variable_name']} | {el['category']} | {el['locator']}"
+        for el in state["xpaths"]
+    ])
 
-    system_prompt = f"""You are an expert automation engineer.
-You will receive:
-1. A natural language test case
-2. Optional test data
-3. A list of extracted elements with variable_name and xpath
+    system_prompt = f"""
+You are a senior automation engineer.
 
-Your job:
-- Map each step of the test case ONLY to elements in the provided list.
-- Generate executable {selectedLanguage} code using {selectedTool}.
-- Prefer By.id, By.name, By.cssSelector over XPath when possible.
-- If an element does not exist in the list, insert a TODO comment instead of inventing a locator."""
+ACTION RULES:
+- TEXTBOX, PASSWORD → sendKeys
+- BUTTON, LINK → click
+- CHECKBOX → click if not selected
+- DROPDOWN_NATIVE → Select class
+- DROPDOWN_CUSTOM → click + select visible option
+- If no matching element exists → add TODO
 
-    user_prompt = f"""Generate a code snippet in {selectedLanguage} that performs the following task.
+Use the provided elements only.
+"""
 
-Test case: \"{testCase}\"
-Data: \"{testData}\"
-Start URL: \"{url}\"
-Test Steps: \"{testSteps}\"
+    user_prompt = f"""
+Test Case:
+{state.get("testCase")}
 
-Selector rules:
-- Prefer: By.name, By.id, or CSS selectors
-- Use XPath only if no other option is available
+Start URL:
+{state.get("url")}
+
 Available Elements:
-{available_elements}
+{elements}
 
-Generate {selectedLanguage} code using {selectedTool} that automates this test steps.
+Generate executable Selenium Java code.
+Return ONLY valid Java code.
+"""
 
-STRICT OUTPUT INSTRUCTION:
-Return only valid {selectedLanguage} code with necessary imports. Do NOT include markdown, explanations, comments, or extra formatting."""
-
-    resp = llm.invoke([
+    response = llm.invoke([
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt}
     ])
 
-    state["generated_code"] = resp.content
+    state["generated_code"] = response.content
     return state
 
+
 # ------------------------
-# Build LangGraph Workflow
+# LangGraph Workflow
 # ------------------------
 graph = StateGraph(dict)
 
