@@ -81,13 +81,25 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
-        "https://genaitestautomation.vercel.app",
-        "*"
+        "https://genaitestautomation.vercel.app"
     ],
-    allow_credentials=True,
+    # Do not use wildcard with allow_credentials=True; set to False for simple requests.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Log incoming request origins to help diagnose CORS issues
+@app.middleware("http")
+async def log_origin(request, call_next):
+    origin = request.headers.get("origin")
+    logging.info("Incoming request %s %s Origin=%s", request.method, request.url, origin)
+    response = await call_next(request)
+    # Echo origin if present and allowed (helps debugging when CORS headers missing)
+    if origin:
+        response.headers.setdefault("Access-Control-Allow-Origin", origin)
+    return response
 
 
 @app.get("/health")
